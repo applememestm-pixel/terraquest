@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+node_modules/
+data/
+build/
+*.apk
+*.ipa
+*.p8
+*.keystore
+*.sqlite*
+__pycache__/
+.DS_Store

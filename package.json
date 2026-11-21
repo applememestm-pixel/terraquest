@@ -1,0 +1,13 @@
+{
+  "name": "terraquest",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22.13"},
+  "scripts": {
+    "start": "go run .",
+    "test": "go test ./...",
+    "build:mobile": "node scripts/build-offline.mjs",
+    "build:android": "node scripts/build-android.mjs"
+  }
+}

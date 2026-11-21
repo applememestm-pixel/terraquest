@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f5f6fa">
+  <meta name="description" content="Изучай страны, столицы, флаги и гербы на интерактивном глобусе.">
+  <title>Терра — география в игре</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/terra-192.png">
+  <link rel="apple-touch-icon" href="icons/terra-180.png">
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="d3-array.min.js"></script>
+  <script defer src="d3-geo.min.js"></script>
+  <script defer src="world.js"></script>
+  <script defer src="atlases.js"></script>
+  <script defer src="country-info.js"></script>
+  <script defer src="game-progress.js"></script>
+  <script defer src="app.js"></script>
+  <script defer src="country-photos.js"></script>
+  <script defer src="catalog.js"></script>
+  <script defer src="mobile.js"></script>
+  <script defer src="account.js"></script>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="#game" aria-label="Терра, к игре">
+    <span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="4" ry="8.5"/><path d="M3.5 12h17M5.5 7.5h13M5.5 16.5h13"/></svg></span>Терра
+  </a>
+  <nav class="site-nav" aria-label="Разделы Терры">
+    <a id="game-link" href="#game" aria-current="page">Игра</a>
+    <a id="catalog-link" href="#catalog">Страны</a>
+  </nav>
+  <div class="header-actions">
+    <button id="progress-button" class="button header-progress" type="button" aria-label="Мой прогресс" title="Мой прогресс"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 21h8m-4-4v4M7 4h10v7a5 5 0 0 1-10 0V4Zm0 2H3v2a4 4 0 0 0 4 4m10-6h4v2a4 4 0 0 1-4 4"/></svg><span>Мой прогресс</span></button>
+    <button id="theme-button" class="button icon-button header-tool" type="button" aria-label="Тёмная тема" aria-pressed="false" title="Тёмная тема">
+      <svg class="theme-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.1A8.4 8.4 0 0 1 8.9 4 8.5 8.5 0 1 0 20 15.1Z"/></svg>
+      <svg class="theme-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+    </button>
+    <button id="install-button" class="button icon-button header-tool" type="button" aria-label="Установить Терру" title="Установить Терру">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2"/><path d="M12 7v7m-3-3 3 3 3-3m-4 4h2"/></svg>
+    </button>
+    <button id="account-button" class="button icon-button header-tool" type="button" aria-label="Аккаунт" title="Аккаунт" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20v-1a7 7 0 0 1 14 0v1"/></svg>
+    </button>
+  </div>
+</header>
+<main id="game-page">
+  <div class="intro">
+    <div><h1>География в игре</h1><p>Находи страны и раскрашивай мир.</p></div>
+    <div class="view-switch segmented" aria-label="Вид карты">
+      <button type="button" data-view="globe" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="4" ry="8.5"/><path d="M3.5 12h17"/></svg>Глобус</button>
+      <button type="button" data-view="map" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Zm6-3v15m6-12v15"/></svg>Карта</button>
+    </div>
+  </div>
+  <div class="game-layout">
+    <section class="atlas" aria-label="Игровая карта">
+      <canvas id="atlas" tabindex="0" aria-label="Интерактивная карта. Используй стрелки для перемещения и плюс или минус для масштаба. Для выбора страны с клавиатуры открой список стран."></canvas>
+      <div class="atlas-top"><span class="atlas-label"><i></i><span id="atlas-region">Весь мир</span></span><button type="button" id="country-list" class="atlas-button list-button">Список стран</button></div>
+      <div class="atlas-bottom">
+        <span id="atlas-help">Перетащи, чтобы вращать</span>
+        <div class="atlas-controls">
+          <button type="button" id="zoom-out" class="atlas-button icon-button" title="Отдалить" aria-label="Отдалить">−</button>
+          <button type="button" id="zoom-in" class="atlas-button icon-button" title="Приблизить" aria-label="Приблизить">+</button>
+          <button type="button" id="reset" class="atlas-button icon-button" title="Сбросить вид" aria-label="Сбросить вид"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg></button>
+        </div>
+      </div>
+    </section>
+    <aside class="sidebar" aria-label="Викторина">
+      <section class="card challenge">
+        <div class="card-top"><span class="label" id="stage-label">ПОИСК СТРАНЫ</span><span id="steps" class="steps" aria-label="Этапы задания"></span></div>
+        <div id="question"></div>
+        <p id="attempt-score" class="attempt-score" hidden></p>
+        <p id="feedback" class="feedback" role="status"></p>
+        <div class="question-actions"><button type="button" class="button subtle" id="hint">Подсказка</button><button type="button" class="button subtle" id="skip">Пропустить</button></div>
+      </section>
+      <section class="card region-progress" aria-label="Счёт и прогресс">
+        <div class="score-line"><span id="score-label">Общий счёт</span><strong id="score">0</strong></div>
+        <div><span id="progress-label">Пройдено в режиме</span><strong id="progress-count">0 / …</strong></div>
+        <progress id="progress-bar" value="0" max="1"></progress>
+      </section>
+      <section class="card settings">
+        <h2>Настройки игры</h2>
+        <label class="field" for="atlas-set">Атлас
+          <select id="atlas-set"><option value="countries">Страны мира</option><option value="japan">Префектуры Японии</option><option value="russia">Субъекты РФ</option><option value="usa">Штаты США</option><option value="history">Вторая мировая война</option></select>
+        </label>
+        <label class="field" for="history-year" hidden>Период
+          <select id="history-year"></select>
+        </label>
+        <label class="field" for="region">Регион
+          <select id="region"><option value="World">Весь мир</option><option value="Africa">Африка</option><option value="Europe">Европа</option><option value="Asia">Азия</option><option value="North America">Северная Америка</option><option value="South America">Южная Америка</option><option value="Oceania">Океания</option></select>
+        </label>
+        <label class="field" for="quiz-mode">Режим игры
+          <select id="quiz-mode"><option value="quick">Найти страну</option><option value="full">Полный раунд</option><option value="flags">Только флаги</option><option value="arms">Только гербы</option><option value="capitals">Столица по стране</option><option value="reverse">Страна по столице</option></select>
+        </label>
+        <label class="field" for="difficulty">Сложность
+          <select id="difficulty"><option value="easy">Изи</option><option value="normal" selected>Норм</option><option value="hard">Хард</option><option value="hardcore">Хардкор</option></select>
+        </label>
+        <p id="difficulty-note" class="question-copy"></p>
+        <label class="field" for="colors">Раскраска
+          <select id="colors"><option value="natural">Цвета природы</option><option value="flag">Флаги стран</option></select>
+        </label>
+        <p id="atlas-note" class="question-copy" hidden></p>
+      </section>
+    </aside>
+  </div>
+  <footer><span><a id="atlas-source" href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a> · <a href="https://en.wikipedia.org/wiki/Armorial_of_sovereign_states" target="_blank" rel="noopener">Источники гербов</a></span><span>© <a href="https://github.com/applememestm-pixel" target="_blank" rel="noopener">applememestm-pixel</a></span></footer>
+</main>
+<main id="catalog-page" hidden>
+  <div class="intro catalog-intro">
+    <div><h1 id="catalog-title" tabindex="-1">Страны мира</h1><p>197 стран. Экономика, история и фотографии мест.</p></div>
+  </div>
+  <div class="catalog-layout">
+    <section class="card catalog-browser" aria-label="Каталог стран">
+      <label class="field" for="catalog-search">Поиск по стране или столице
+        <input id="catalog-search" type="search" autocomplete="off" placeholder="Например, Япония">
+      </label>
+      <label class="field" for="catalog-region">Регион
+        <select id="catalog-region"><option value="World">Все регионы</option><option value="Africa">Африка</option><option value="Europe">Европа</option><option value="Asia">Азия</option><option value="North America">Северная Америка</option><option value="South America">Южная Америка</option><option value="Oceania">Океания</option></select>
+      </label>
+      <p id="catalog-match" class="question-copy" role="status"></p>
+      <ul id="catalog-results" class="catalog-results"></ul>
+    </section>
+    <article id="catalog-profile" class="catalog-profile" aria-label="Профиль страны"></article>
+  </div>
+</main>
+<dialog id="install-dialog" class="dialog">
+  <form method="dialog" class="dialog-top"><h2>Терра на телефоне</h2><button class="button icon-button" aria-label="Закрыть">×</button></form>
+  <p class="question-copy">Открой сайт в браузере телефона и войди через ChatGPT.</p>
+  <dl class="install-steps">
+    <dt>iPhone · Safari</dt><dd>«Поделиться» → «На экран Домой» → «Открыть как веб-приложение», если этот переключатель есть.</dd>
+    <dt>Android · Chrome</dt><dd>Меню ⋮ → «Установить приложение» или «Добавить на главный экран».</dd>
+  </dl>
+  <p class="question-copy">Счёт и прогресс хранятся на устройстве.</p>
+</dialog>
+<dialog id="account-dialog" class="dialog">
+  <form method="dialog" class="dialog-top"><h2>Аккаунт</h2><button class="button icon-button" aria-label="Закрыть">×</button></form>
+  <p id="account-status" class="question-copy" role="status"></p>
+  <a id="account-action" class="button primary account-action" href="/auth/signin">Войти</a>
+</dialog>
+<dialog id="progress-dialog" class="dialog">
+  <form method="dialog" class="dialog-top"><h2>Мой прогресс</h2><button class="button icon-button" aria-label="Закрыть">×</button></form>
+  <div id="progress-details"></div>
+</dialog>
+<dialog id="countries-dialog" class="dialog">
+  <form method="dialog" class="dialog-top"><h2 id="countries-title">Список стран</h2><button class="button icon-button" aria-label="Закрыть">×</button></form>
+  <label class="field" for="country-search">Поиск по названию<input id="country-search" type="search" autocomplete="off" placeholder="Введите название"></label>
+  <div id="country-options" class="country-options"></div>
+</dialog>
+<dialog id="profile-dialog" class="dialog">
+  <form method="dialog" class="dialog-top"><h2 id="profile-title">Справка о стране</h2><button class="button icon-button" aria-label="Закрыть">×</button></form>
+  <div id="profile-details"></div>
+</dialog>
+</body>
+</html>
+

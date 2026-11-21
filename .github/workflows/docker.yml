@@ -1,0 +1,26 @@
+name: Docker resource check
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run server with the memory cap
+        run: |
+          docker compose up -d --build
+          trap 'docker compose down -v' EXIT
+          curl --retry 12 --retry-all-errors --retry-delay 2 -fsS localhost:3000/healthz
+          container="$(docker compose ps -q terra)"
+          test "$(docker inspect --format '{{.HostConfig.Memory}}' "$container")" = 50000000
+          for i in $(seq 1 12); do
+            curl -fsS localhost:3000/atlases.js -o /dev/null &
+          done
+          wait
+          curl -fsS localhost:3000/api/account
+          test "$(docker inspect --format '{{.State.OOMKilled}}' "$container")" = false
+          docker stats --no-stream "$container"

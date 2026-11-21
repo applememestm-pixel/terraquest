@@ -1,0 +1,23 @@
+name: Terra
+options:
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  Terra:
+    type: application
+    platform: iOS
+    sources:
+      - Terra
+      - path: ../../build/mobile-web
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.terraquest.atlas
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Терра
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "1.0.0"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"

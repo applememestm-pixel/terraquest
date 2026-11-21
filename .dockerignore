@@ -1,0 +1,16 @@
+.git
+.openai
+.github
+.env
+.env.*
+node_modules
+data
+native
+offline-assets
+build
+scripts
+*.apk
+*.ipa
+*.p8
+*.keystore
+*.sqlite*
