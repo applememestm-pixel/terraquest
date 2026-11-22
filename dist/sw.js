@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_NAME = 'terra-app-v4';
+const CACHE_NAME = 'terra-app-v5';
 const coreFiles = [
   './', 'style.css', 'theme.js', 'd3-array.min.js', 'd3-geo.min.js', 'world.js', 'atlases.js',
   'country-info.js', 'game-progress.js', 'app.js', 'country-photos.js', 'catalog.js', 'mobile.js', 'account.js',

@@ -16,6 +16,20 @@ docker compose up --build -d
 
 Без настройки OAuth сайт работает в гостевом режиме с сохранением в браузере.
 
+### Автообновление на Ubuntu
+
+После успешной проверки каждого пуша в `main` GitHub Actions публикует готовый Docker-образ для Linux x86-64 в релизе [`server-latest`](https://github.com/applememestm-pixel/terraquest/releases/tag/server-latest). Для уже работающего сервера с установкой в `/opt/terraquest` один раз выполни от root:
+
+```sh
+cd /opt/terraquest && git pull --ff-only &&
+  install -m 0755 scripts/update-server.sh /usr/local/sbin/terra-update &&
+  install -m 0644 scripts/terra-update.{service,timer} /etc/systemd/system/ &&
+  systemctl daemon-reload && systemctl enable --now terra-update.timer &&
+  systemctl start terra-update.service
+```
+
+Таймер проверяет GitHub раз в пять минут без токена. Сервер сверяет SHA-256, применяет новый образ и возвращает предыдущий, если проверка работоспособности провалится. Сборка выполняется в GitHub Actions. Конфигурация Compose, `.env` и том с прогрессом остаются на VPS. Журнал обновлений доступен через `journalctl -u terra-update.service -n 40`.
+
 ### Вход через Google и Apple
 
 Скопируйте `.env.example` в `.env`. Укажите внешний адрес в `PUBLIC_URL` и задайте длинный случайный `AUTH_SECRET`: `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`. Для внешнего домена обслуживайте сайт по HTTPS через обратный прокси.

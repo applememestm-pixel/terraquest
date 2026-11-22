@@ -63,6 +63,8 @@ let flight;
 let width;
 let height;
 let pixelRatio;
+let projectedAtlas;
+let hitCamera;
 let hitShapes = [];
 let hitDots = [];
 const sphere = {type: 'Sphere'};
@@ -425,8 +427,10 @@ function showLostAttempt() {
 
 function focusCountry(country, minimumZoom) {
   if (view === 'map') {
-    const projection = getProjection();
-    const [x, y] = projection(country.point);
+    const [px, py] = getProjectedAtlas().projection(country.point);
+    const { scale, x: tx, y: ty } = cameraTransform(1);
+    const x = px * scale + tx;
+    const y = py * scale + ty;
     if (x < 40 || x > width - 40 || y < 56 || y > height - 56) {
       offset[0] += width / 2 - x;
       offset[1] += height / 2 - y;
@@ -633,26 +637,18 @@ function requestDraw() {
   if (frame == null) frame = requestAnimationFrame(draw);
 }
 
-function getProjection() {
+function baseProjection(detail, visibleFeatures) {
   if (view === 'globe') {
     return d3.geoOrthographic()
       .rotate(spin).translate([width / 2, height / 2])
-      .scale(Math.min(width - 32, height - 78) * .49 * zoom).precision(.75);
+      .scale(Math.min(width - 32, height - 78) * .49 * detail).precision(.55);
   }
   const global = isHistory() || (isWorld() && region === 'World');
   const projection = global
     ? d3.geoEqualEarth()
     : d3.geoAzimuthalEqualArea().rotate(cameraCenter().map(value => -value)).clipAngle(125);
-  const contents = global ? sphere : {
-    type: 'FeatureCollection',
-    features: isWorld() ? features.filter(feature => byId.get(feature.id)?.region === region) : features
-  };
-  projection.precision(.75).fitExtent([[25, 54], [width - 25, height - 54]], contents);
-  const [x, y] = projection.translate();
-  return projection.scale(projection.scale() * zoom).translate([
-    width / 2 + (x - width / 2) * zoom + offset[0],
-    height / 2 + (y - height / 2) * zoom + offset[1]
-  ]);
+  const contents = global ? sphere : { type: 'FeatureCollection', features: visibleFeatures };
+  return projection.precision(.75).fitExtent([[25, 54], [width - 25, height - 54]], contents).precision(.12);
 }
 
 function makePath(projection, geometry) {
@@ -660,6 +656,76 @@ function makePath(projection, geometry) {
   const drawPath = d3.geoPath(projection, path);
   drawPath(geometry);
   return path;
+}
+
+function projectTerritories(projection, visibleFeatures) {
+  // Use the same clipped polygon stream for painting, area and hit bounds.
+  let shape, left, top, right, bottom, area, polygonArea;
+  let firstX, firstY, lastX, lastY, first;
+  const stream = projection.stream({
+    polygonStart() { polygonArea = 0; },
+    polygonEnd() { area += Math.abs(polygonArea) / 2; },
+    lineStart() { first = true; },
+    lineEnd() {
+      if (first) return;
+      polygonArea += lastX * firstY - firstX * lastY;
+      shape.closePath();
+    },
+    point(x, y) {
+      if (first) {
+        firstX = x;
+        firstY = y;
+        shape.moveTo(x, y);
+        first = false;
+      } else {
+        polygonArea += lastX * y - x * lastY;
+        shape.lineTo(x, y);
+      }
+      lastX = x;
+      lastY = y;
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  });
+  const territories = new Map();
+  for (const feature of visibleFeatures) {
+    shape = new Path2D();
+    left = top = Infinity;
+    right = bottom = -Infinity;
+    area = 0;
+    d3.geoStream(feature, stream);
+    if (left !== Infinity) territories.set(feature.id, { feature, shape, left, top, right, bottom, area });
+  }
+  return territories;
+}
+
+function getProjectedAtlas() {
+  const globe = view === 'globe';
+  const detail = globe ? 2 ** Math.round(Math.log2(zoom)) : 1;
+  const key = [view, region, width, height, detail, ...(globe ? spin : [])].join('|');
+  if (projectedAtlas?.key === key && projectedAtlas.features === features) return projectedAtlas;
+  const visibleFeatures = globe || region === 'World' ? features
+    : features.filter(feature => byId.get(feature.id)?.region === region);
+  const projection = baseProjection(detail, visibleFeatures);
+  const territories = projectTerritories(projection, visibleFeatures);
+  const center = globe ? projection.invert(projection.translate()) : null;
+  const labels = [];
+  for (const country of countries) {
+    if (!country.point || (region !== 'World' && country.region !== region)) continue;
+    if (globe && d3.geoDistance(country.point, center) > Math.PI / 2 - .025) continue;
+    const [x, y] = projection(country.point);
+    labels.push({ country, x, y, area: territories.get(country.id)?.area || 0 });
+  }
+  const boundary = globe || isHistory() || (isWorld() && region === 'World') ? makePath(projection, sphere) : null;
+  projectedAtlas = { key, features, projection, territories, labels, boundary, detail, grid: makePath(projection, graticule) };
+  return projectedAtlas;
+}
+
+function cameraTransform(detail) {
+  const scale = zoom / detail;
+  return { scale, x: width / 2 * (1 - scale) + offset[0], y: height / 2 * (1 - scale) + offset[1] };
 }
 
 function useImage(url) {
@@ -680,7 +746,8 @@ function naturalColor(country, feature) {
   return '#7ba76e';
 }
 
-function drawCountry(projection, feature, shape, selected) {
+function drawCountry(territory, scale, selected) {
+  const { feature, shape, left, top, right, bottom } = territory;
   const id = feature.id;
   const country = byId.get(id);
   const unlocked = country && painted(country);
@@ -698,21 +765,20 @@ function drawCountry(projection, feature, shape, selected) {
   if (unlocked && colorMode === 'flag' && country.flag) {
     const img = useImage(country.flag);
     if (img.complete && img.naturalWidth) {
-      const [[x, y], [right, bottom]] = d3.geoPath(projection).bounds(feature);
-      const w = right - x;
-      const h = bottom - y;
+      const w = right - left;
+      const h = bottom - top;
       if (w > 0 && h > 0 && Number.isFinite(w * h)) {
         ctx.save();
         ctx.clip(shape);
-        ctx.drawImage(img, x, y, w, h);
+        ctx.drawImage(img, left, top, w, h);
         ctx.restore();
       }
     }
   }
   ctx.strokeStyle = hinted || historySelection?.id === id ? '#678dff'
     : country?.claimed ? '#664835' : inactive ? '#546179' : '#56647b';
-  ctx.lineWidth = hinted || historySelection?.id === id ? 2.3 : .7;
-  if (country?.claimed) ctx.setLineDash([3, 2]);
+  ctx.lineWidth = (hinted || historySelection?.id === id ? 2.3 : .7) / scale;
+  if (country?.claimed) ctx.setLineDash([3 / scale, 2 / scale]);
   ctx.lineJoin = 'round';
   ctx.stroke(shape);
   if (country?.claimed) ctx.setLineDash([]);
@@ -732,37 +798,48 @@ function draw(time) {
     ? reducedMotion.matches ? 0 : 9 * Math.min(1, Math.max(0, (time - pulseStart) / 220))
     : 0;
   if (flight || (pulseStart && view === 'globe' && !reducedMotion.matches && time - pulseStart < 220)) requestDraw();
-  const projection = getProjection();
+  const { projection, territories, labels, boundary, detail, grid } = getProjectedAtlas();
+  const camera = cameraTransform(detail);
+  const { x: tx, y: ty, scale } = camera;
   const globe = view === 'globe';
   const [cx, cy] = projection.translate();
   const radius = projection.scale();
-  const path = d3.geoPath(projection);
   ctx.clearRect(0, 0, width, height);
+  hitCamera = camera;
   hitShapes = [];
   hitDots = [];
   let lifted;
-  const boundary = globe || isHistory() || (isWorld() && region === 'World') ? makePath(projection, sphere) : null;
+  ctx.save();
+  ctx.translate(tx, ty);
+  ctx.scale(scale, scale);
   if (boundary) {
+    if (globe) {
+      const shadowY = cy + 9 / scale;
+      const shadowRadius = radius + 24 / scale;
+      const shadow = ctx.createRadialGradient(cx, shadowY, Math.max(0, radius - 8 / scale), cx, shadowY, shadowRadius);
+      shadow.addColorStop(0, '#080f2396');
+      shadow.addColorStop(1, '#080f2300');
+      ctx.fillStyle = shadow;
+      ctx.fillRect(cx - shadowRadius, shadowY - shadowRadius, shadowRadius * 2, shadowRadius * 2);
+    }
     ctx.fillStyle = globe ? '#657185' : '#455570';
-    ctx.save();
-    ctx.shadowColor = '#080f23b0';
-    ctx.shadowBlur = 26;
-    ctx.shadowOffsetY = 9;
     ctx.fill(boundary);
-    ctx.restore();
   }
   ctx.strokeStyle = '#d6e3fa25';
-  ctx.lineWidth = .7;
-  ctx.stroke(makePath(projection, graticule));
-  for (const feature of features) {
-    if (!globe && region !== 'World' && byId.get(feature.id)?.region !== region) continue;
-    const shape = makePath(projection, feature);
-    if (feature.id === target?.id && lift > 0) {
-      lifted = [feature, shape];
+  ctx.lineWidth = .7 / scale;
+  ctx.stroke(grid);
+  const left = (-12 - tx) / scale;
+  const right = (width + 12 - tx) / scale;
+  const top = (-12 - ty) / scale;
+  const bottom = (height + 12 - ty) / scale;
+  for (const territory of territories.values()) {
+    if (territory.right < left || territory.left > right || territory.bottom < top || territory.top > bottom) continue;
+    if (territory.feature.id === target?.id && lift > 0) {
+      lifted = territory;
     } else {
-      drawCountry(projection, feature, shape, false);
+      drawCountry(territory, scale, false);
     }
-    hitShapes.push([feature.id, shape]);
+    hitShapes.push(territory);
   }
   if (globe) {
     const light = ctx.createRadialGradient(cx - radius * .36, cy - radius * .44, radius * .12, cx, cy, radius * 1.05);
@@ -772,17 +849,16 @@ function draw(time) {
     ctx.fillStyle = light;
     ctx.fill(boundary);
     ctx.strokeStyle = '#bccce680';
-    ctx.lineWidth = 1.15;
+    ctx.lineWidth = 1.15 / scale;
     ctx.stroke(boundary);
   }
-  for (const country of countries) {
-    if (region !== 'World' && country.region !== region) continue;
-    const feature = geometryById.get(country.id);
-    const label = country.point;
-    if (!label || (globe && d3.geoDistance(label, projection.invert([cx, cy])) > Math.PI / 2 - .025)) continue;
-    const [x, y] = projection(label);
+  ctx.restore();
+  for (const label of labels) {
+    const { country, area } = label;
+    if (area * scale * scale >= 26 && !(reveal && country.id === target?.id)) continue;
+    const x = label.x * scale + tx;
+    const y = label.y * scale + ty;
     if (x < 0 || y < 0 || x > width || y > height) continue;
-    if (path.area(feature) >= 26 && !(reveal && country.id === target?.id)) continue;
     const marked = country.id === target?.id && (reveal || pulseStart !== null);
     const dotRadius = marked ? 5.2 : hoverId === country.id ? 3.8 : 2.6;
     ctx.beginPath();
@@ -795,19 +871,21 @@ function draw(time) {
     hitDots.push([country.id, x, y, marked ? 8 : 5]);
   }
   if (lifted) {
-    const [feature, shape] = lifted;
     ctx.save();
+    ctx.translate(tx, ty);
+    ctx.scale(scale, scale);
     for (let depth = 0; depth < lift; depth += 2) {
-      ctx.translate(0, -2);
+      ctx.translate(0, -2 / scale);
       ctx.fillStyle = '#334fac';
-      ctx.fill(shape);
+      ctx.fill(lifted.shape);
     }
-    drawCountry(projection, feature, shape, true);
+    drawCountry(lifted, scale, true);
     ctx.restore();
   }
 }
 
 function at(x, y) {
+  if (!hitCamera) return;
   let nearest;
   let minDistance = Infinity;
   for (const [id, px, py, r] of hitDots) {
@@ -818,9 +896,11 @@ function at(x, y) {
     }
   }
   if (nearest) return nearest;
+  x = (x - hitCamera.x) / hitCamera.scale;
+  y = (y - hitCamera.y) / hitCamera.scale;
   for (let i = hitShapes.length - 1; i >= 0; i--) {
-    const [id, shape] = hitShapes[i];
-    if (hitContext.isPointInPath(shape, x, y)) return id;
+    const { feature, shape, left, top, right, bottom } = hitShapes[i];
+    if (x >= left && x <= right && y >= top && y <= bottom && hitContext.isPointInPath(shape, x, y)) return feature.id;
   }
 }
 
@@ -850,7 +930,9 @@ function moveBy(dx, dy) {
 
 function changeZoom(factor) {
   flight = null;
-  zoom = Math.max(.72, Math.min(9, zoom * factor));
+  const next = Math.max(.72, Math.min(9, zoom * factor));
+  if (next === zoom) return;
+  zoom = next;
   requestDraw();
 }
 
@@ -913,7 +995,8 @@ canvas.addEventListener('pointerleave', () => {
 });
 canvas.addEventListener('wheel', event => {
   event.preventDefault();
-  changeZoom(event.deltaY < 0 ? 1.15 : 1 / 1.15);
+  const pixels = event.deltaY * (event.deltaMode === 1 ? 32 : event.deltaMode === 2 ? height : 1);
+  changeZoom(Math.exp(-Math.max(-200, Math.min(200, pixels)) * .0015));
 }, {passive: false});
 canvas.addEventListener('keydown', event => {
   const keys = { ArrowLeft: [-25, 0], ArrowRight: [25, 0], ArrowUp: [0, -25], ArrowDown: [0, 25] };

@@ -2,6 +2,9 @@ name: Docker resource check
 on:
   push:
   pull_request:
+concurrency:
+  group: terra-docker-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
@@ -24,3 +27,41 @@ jobs:
           curl -fsS localhost:3000/api/account
           test "$(docker inspect --format '{{.State.OOMKilled}}' "$container")" = false
           docker stats --no-stream "$container"
+      - name: Export the tested server image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'applememestm-pixel/terraquest'
+        run: docker image save terraquest:local | gzip -n > terra-server-linux-amd64.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'applememestm-pixel/terraquest'
+        with:
+          name: server-image
+          path: terra-server-linux-amd64.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+  publish:
+    needs: container
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'applememestm-pixel/terraquest'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: server-image
+      - name: Publish the tested server image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            exit 0
+          fi
+          asset=terra-server-linux-amd64.tar.gz
+          if gh release view server-latest >/dev/null 2>&1; then
+            gh release upload server-latest "$asset" --clobber
+          else
+            gh release create server-latest "$asset" --target "$GITHUB_SHA" --latest=false \
+              --title 'Терра для сервера' --notes 'Проверенный Docker-образ актуальной версии сайта для Linux x86-64.'
+          fi
